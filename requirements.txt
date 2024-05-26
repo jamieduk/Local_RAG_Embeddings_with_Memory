@@ -2,3 +2,9 @@ openai
 torch
 PyPDF2
 ollama
+pdf2image
+pytesseract
+pdf2image
+Pillow
+tkinter
+pytesseract
