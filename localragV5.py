@@ -30,7 +30,7 @@ def extract_text_from_image(page):
         text += pytesseract.image_to_string(image)
     return text
 
-# Function to convert PDF to text and append to vault.txt
+# Function to convert PDF to text and replace vault.txt
 def convert_pdf_to_text():
     file_path=filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
     if file_path:
@@ -57,10 +57,11 @@ def convert_pdf_to_text():
             if current_chunk:
                 chunks.append(current_chunk)
 
-            with open("vault.txt", "a", encoding="utf-8") as vault_file:
+            with open("vault.txt", "w", encoding="utf-8") as vault_file:
                 for chunk in chunks:
                     vault_file.write(chunk.strip() + "\n")
-            print(f"PDF content appended to vault.txt with each chunk on a separate line.")
+            print(f"PDF content replaced in vault.txt with each chunk on a separate line.")
+
 
 # Function to open a file and return its contents as a string
 def open_file(filepath):
@@ -112,10 +113,14 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
     )
     if response.status_code == 200:
         rewritten_query=response.json()["choices"][0]["text"].strip()
+        with open("rewritten_queries.txt", "w", encoding="utf-8") as rewritten_file:
+            rewritten_file.write(rewritten_query + "\n")
+        print("Rewritten query saved to rewritten_queries.txt")
         return json.dumps({"Rewritten Query": rewritten_query})
     else:
         print(f"HTTP request failed with status code {response.status_code}.")
         return None
+
 
 # Function to handle the chat logic with Ollama
 def ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
@@ -149,6 +154,10 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
     if relevant_context:
         user_input_with_context=user_input + "\n\nRelevant Context:\n" + context_str
 
+    # Write user input with context to a file
+    with open("user_input_with_context.txt", "w", encoding="utf-8") as input_file:
+        input_file.write(user_input_with_context + "\n")
+
     conversation_history[-1]["content"]=user_input_with_context
 
     messages=[
@@ -169,10 +178,16 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
         content=response.json()
         assistant_response=content["choices"][0]["message"]["content"]
         conversation_history.append({"role": "assistant", "content": assistant_response})
+
+        # Write assistant response to a file
+        with open("assistant_response.txt", "w", encoding="utf-8") as response_file:
+            response_file.write(assistant_response + "\n")
+
         return assistant_response
     else:
         print(f"HTTP request failed with status code {response.status_code}.")
         return None
+
 
 # Main function
 def main():
