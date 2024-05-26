@@ -62,7 +62,6 @@ def convert_pdf_to_text():
                     vault_file.write(chunk.strip() + "\n")
             print(f"PDF content replaced in vault.txt with each chunk on a separate line.")
 
-
 # Function to open a file and return its contents as a string
 def open_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as infile:
@@ -80,7 +79,6 @@ def get_relevant_context(rewritten_input, vault_embeddings, vault_content, top_k
     relevant_context=[vault_content[idx].strip() for idx in top_indices]
     return relevant_context
 
-# Function to rewrite a query using a pre-trained summarization model
 def rewrite_query(user_input_json, conversation_history, ollama_model, client):
     user_input=json.loads(user_input_json)["Query"]
     context="\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])
@@ -111,6 +109,7 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
         },
         timeout=60.0
     )
+
     if response.status_code == 200:
         rewritten_query=response.json()["choices"][0]["text"].strip()
         with open("rewritten_queries.txt", "w", encoding="utf-8") as rewritten_file:
@@ -119,7 +118,74 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
         return json.dumps({"Rewritten Query": rewritten_query})
     else:
         print(f"HTTP request failed with status code {response.status_code}.")
+        print(f"Response content: {response.content.decode('utf-8')}")
         return None
+
+# Function to handle the chat logic with Ollama
+def ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
+    conversation_history.append({"role": "user", "content": user_input})
+
+    if len(conversation_history) > 1:
+        query_json={
+            "Query": user_input,
+            "Rewritten Query": ""
+        }
+        rewritten_query_json=rewrite_query(json.dumps(query_json), conversation_history, ollama_model, client)
+        if rewritten_query_json:
+            rewritten_query_data=json.loads(rewritten_query_json)
+            rewritten_query=rewritten_query_data["Rewritten Query"]
+            print(f"Original Query: {user_input}")
+            print(f"Rewritten Query: {rewritten_query}")
+        else:
+            print("Failed to rewrite the query.")
+            return None
+    else:
+        rewritten_query=user_input
+
+    relevant_context=get_relevant_context(rewritten_query, vault_embeddings, vault_content)
+    if relevant_context:
+        context_str="\n".join(relevant_context)
+        print("Context Pulled from Documents: \n\n" + context_str)
+    else:
+        print("No relevant context found.")
+
+    user_input_with_context=user_input
+    if relevant_context:
+        user_input_with_context=user_input + "\n\nRelevant Context:\n" + context_str
+
+    # Write user input with context to a file
+    with open("user_input_with_context.txt", "w", encoding="utf-8") as input_file:
+        input_file.write(user_input_with_context + "\n")
+
+    conversation_history[-1]["content"]=user_input_with_context
+
+    messages=[
+        {"role": "system", "content": system_message},
+        *conversation_history
+    ]
+
+    response=client.post(
+        f"http://localhost:11434/v1/chat/completions",
+        json={
+            "model": ollama_model,
+            "messages": messages,
+            "max_tokens": 2000,
+        },
+        timeout=60.
+
+    )
+
+    if response.status_code == 200:
+        rewritten_query=response.json()["choices"][0]["text"].strip()
+        with open("rewritten_queries.txt", "w", encoding="utf-8") as rewritten_file:
+            rewritten_file.write(rewritten_query + "\n")
+        print("Rewritten query saved to rewritten_queries.txt")
+        return json.dumps({"Rewritten Query": rewritten_query})
+    else:
+        print(f"HTTP request failed with status code {response.status_code}.")
+        print(f"Response content: {response.content.decode('utf-8')}")
+        return None
+
 
 
 # Function to handle the chat logic with Ollama
@@ -189,7 +255,6 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
         return None
 
 
-# Main function
 def main():
     parser=argparse.ArgumentParser(description="Ollama Chat")
     parser.add_argument("--model", default="dolphin-llama3:latest", help="Ollama model to use (default: llama3)")
@@ -231,17 +296,25 @@ def main():
             vault_embeddings_tensor=vault_embeddings_tensor.cuda()
 
     print("Starting conversation loop...")
-    conversation_history=[]
-    system_message="You are a helpful assistant that is an expert at extracting the most useful information from a given text. Also bring in extra relevant information to the user query from outside the given context."
 
     while True:
+        conversation_history=[]  # Reset conversation history
+        system_message="You are a helpful assistant that is an expert at extracting the most useful information from a given text. Also bring in extra relevant information to the user query from outside the given context."
+
         user_input=input("Ask a query about your documents (or type 'quit' to exit): ")
         if user_input.lower() == 'quit':
             break
+        elif user_input.lower() == 'convert pdf':
+            convert_pdf_to_text()  # Call the function to convert PDF to text
+            continue
 
         response=ollama_chat(user_input, system_message, vault_embeddings_tensor, vault_content, args.model, conversation_history, client)
         if response:
             print(f"Assistant: {response}")
+
+if __name__ == "__main__":
+    main()
+
 
 if __name__ == "__main__":
     main()
