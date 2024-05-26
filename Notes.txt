@@ -2,7 +2,7 @@ uploadV2.py has amazing capibilities
 
 pip install pytesseract pdf2image ollama openai torch Pillow tkinter
 
-
+ollama run dolphin-llama3
 
 pip install pytesseract
 pip install pdf2image
