@@ -1,0 +1,50 @@
+uploadV2.py has amazing capibilities
+
+pip install pytesseract pdf2image ollama openai torch Pillow tkinter
+
+
+
+pip install pytesseract
+pip install pdf2image
+sudo apt install -y tesseract-ocr
+sudo apt install -y tesseract-ocr-eng
+
+
+
+./upload_pdf.sh
+
+/home/jay/Downloads/CIA-RDP79-00999A000200010077-1.pdf
+
+python localragV2.py
+
+
+
+
+
+
+https://github.com/AllAboutAI-YT/easy-local-rag
+
+Setup
+git clone https://github.com/AllAboutAI-YT/easy-local-rag.git
+cd dir
+pip install -r requirements.txt
+Install Ollama (https://ollama.com/download)
+run upload.py (pdf, .txt, JSON)
+run localrag.py
+
+
+
+V2 is embedding cahed version that reencodes if vault has changed 
+
+
+https://www.youtube.com/watch?v=Oe-7dGDyzPM
+
+
+
+
+Other
+
+https://github.com/AllAboutAI-YT/hackernews-llm-search.git
+
+
+
