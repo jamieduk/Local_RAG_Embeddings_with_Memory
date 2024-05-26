@@ -1,8 +1,23 @@
 uploadV2.py has amazing capibilities
+localrag v3 for linux
+localragVer 5 for  windows with cuda support (4 no cuda)
+
+The script first checks if the vault.txt file exists. If it does, it reads its content and then generates or loads embeddings based on the content. If the vault.txt file doesn't exist, it prints a message indicating that the vault file is not found.
+
+If embeddings need to be regenerated (either because the vault.txt file was modified or the embeddings file is outdated), it generates embeddings for the vault content and saves them to a file named vault_embeddings.pt.
+
+The vault.txt file is overwritten each time the convert_pdf_to_text() function is called. This function extracts text from PDF files and replaces the content of vault.txt with the extracted text, separating each chunk of text onto a separate line.
+
+So, in summary:
+
+vault.txt is overwritten when converting a PDF file to text.
+Embeddings are generated or loaded based on the content of vault.txt and its last modification time.
+If embeddings need to be regenerated, they are generated and saved to vault_embeddings.pt. Otherwise, existing embeddings are loaded from this file.
+
 
 pip install pytesseract pdf2image ollama openai torch Pillow tkinter
 
-ollama run dolphin-llama3
+git clone https://github.com/jamieduk/Local_RAG_Embeddings_with_Memory.git
 
 pip install pytesseract
 pip install pdf2image
@@ -18,10 +33,6 @@ sudo apt install -y tesseract-ocr-eng
 python localragV2.py
 
 
-
-
-
-
 https://github.com/AllAboutAI-YT/easy-local-rag
 
 Setup
@@ -33,18 +44,14 @@ run upload.py (pdf, .txt, JSON)
 run localrag.py
 
 
-
 V2 is embedding cahed version that reencodes if vault has changed 
 
 
 https://www.youtube.com/watch?v=Oe-7dGDyzPM
 
 
-
-
 Other
 
 https://github.com/AllAboutAI-YT/hackernews-llm-search.git
-
 
 
