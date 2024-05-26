@@ -10,7 +10,7 @@ https://ollama.com/library/mxbai-embed-large
 
 ### Setup
 
-0. ollama pull mxbai-embed-large
+0. ollama pull mxbai-embed-large and ollama run dolphin-llama3
 1. git clone https://github.com/AllAboutAI-YT/easy-local-rag.git
 2. cd dir
 3. pip install -r requirements.txt
