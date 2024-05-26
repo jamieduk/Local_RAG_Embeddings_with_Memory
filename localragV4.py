@@ -1,62 +1,244 @@
-import transformers
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import PyPDF2
+import os
 import re
-import tkinter as tk
+import json
+import torch
+import httpx
+import PyPDF2
+import argparse
+import io
+from PIL import Image
+import pytesseract
 from tkinter import filedialog
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-# Function to convert PDF to text
+# Placeholder for Ollama API client functions
+# Replace these with actual imports and methods from the Ollama library you are using
+class Ollama:
+    @staticmethod
+    def embeddings(model, prompt):
+        # Replace with the actual API call to get embeddings
+        return {"embedding": [0.0] * 768}  # Example embedding
+
+ollama=Ollama()
+
+# Function to extract text from images using OCR
+def extract_text_from_image(page):
+    text=''
+    for image_obj in page.images:
+        xref=image_obj[0]
+        base_image=page.get_xobject(xref)
+        image=Image.open(io.BytesIO(base_image.stream.get_data()))
+        text += pytesseract.image_to_string(image)
+    return text
+
+# Function to convert PDF to text and append to vault.txt
 def convert_pdf_to_text():
-  file_path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
-  if file_path:
-    with open(file_path, 'rb') as pdf_file:
-      pdf_reader = PyPDF2.PdfReader(pdf_file)
-      text = ''
-      for page in pdf_reader.pages:
-        text += page.extract_text()
-      # Normalize whitespace and clean up text
-      text = re.sub(r'\s+', ' ', text).strip()
-      return text
-  return None
+    file_path=filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
+    if file_path:
+        with open(file_path, 'rb') as pdf_file:
+            pdf_reader=PyPDF2.PdfReader(pdf_file)
+            text=''
+            for page in pdf_reader.pages:
+                page_text=page.extract_text()
+                if not page_text:
+                    page_text=extract_text_from_image(page)
+                if page_text:
+                    text += page_text + " "
+
+            # Normalize whitespace and clean up text
+            text=re.sub(r'\s+', ' ', text).strip()
+
+            # Split text into chunks by sentences, respecting a maximum chunk size
+            sentences=re.split(r'(?<=[.!?]) +', text)
+            chunks=[]
+            current_chunk=""
+            for sentence in sentences:
+                if len(current_chunk) + len(sentence) + 1 < 1000:
+                    current_chunk += (sentence + " ").strip()
+                else:
+                    chunks.append(current_chunk)
+                    current_chunk=sentence + " "
+            if current_chunk:
+                chunks.append(current_chunk)
+
+            with open("vault.txt", "a", encoding="utf-8") as vault_file:
+                for chunk in chunks:
+                    vault_file.write(chunk.strip() + "\n")
+            print(f"PDF content appended to vault.txt with each chunk on a separate line.")
 
 # Function to open a file and return its contents as a string
 def open_file(filepath):
-  with open(filepath, 'r', encoding='utf-8') as infile:
-    return infile.read()
+    with open(filepath, 'r', encoding='utf-8') as infile:
+        return infile.read()
+
+# Function to get relevant context from the vault
+def get_relevant_context(rewritten_input, vault_embeddings, vault_content, top_k=3):
+    if vault_embeddings.nelement() == 0:  # Check if the tensor has any elements
+        return []
+    # Encode the rewritten input
+    input_embedding=ollama.embeddings(model='mxbai-embed-large', prompt=rewritten_input)["embedding"]
+    # Compute cosine similarity between the input and vault embeddings
+    cos_scores=torch.cosine_similarity(torch.tensor(input_embedding).unsqueeze(0), vault_embeddings)
+    # Adjust top_k if it's greater than the number of available scores
+    top_k=min(top_k, len(cos_scores))
+    # Sort the scores and get the top-k indices
+    top_indices=torch.topk(cos_scores, k=top_k)[1].tolist()
+    # Get the corresponding context from the vault
+    relevant_context=[vault_content[idx].strip() for idx in top_indices]
+    return relevant_context
 
 # Function to rewrite a query using a pre-trained summarization model
-def rewrite_query(user_input, model_name="t5-base"):
-  tokenizer = AutoTokenizer.from_pretrained(model_name)
-  model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+def rewrite_query(user_input_json, conversation_history, ollama_model, client):
+    user_input=json.loads(user_input_json)["Query"]
+    context="\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])
+    prompt=f"""Rewrite the following query by incorporating relevant context from the conversation history.
+    The rewritten query should:
 
-  # Prepare input for summarization
-  inputs = tokenizer(user_input, return_tensors="pt")
+    - Preserve the core intent and meaning of the original query
+    - Expand and clarify the query to make it more specific and informative for retrieving relevant context
+    - Avoid introducing new topics or queries that deviate from the original query
+    - DONT EVER ANSWER the Original query, but instead focus on rephrasing and expanding it into a new query
 
-  # Generate summary (rewritten query)
-  summary_outputs = model.generate(**inputs)
-  decoded_summary = tokenizer.batch_decode(summary_outputs, skip_special_tokens=True)[0]
-  return decoded_summary
+    Return ONLY the rewritten query text, without any additional formatting or explanations.
 
-# Conversation loop
-print("Starting conversation loop...")
-conversation_history = []
-system_message = "I am a helpful assistant that can summarize your documents and answer questions based on their content."
+    Conversation History:
+    {context}
 
-while True:
-  user_input = input("Ask a question about your documents (or type 'quit' to exit): ")
-  if user_input.lower() == 'quit':
-    break
+    Original query: [{user_input}]
 
-  # Load or convert document if needed
-  document_text = None  # Replace with your document loading logic
+    Rewritten query:
+    """
 
-  # Rewrite query using summarization model
-  rewritten_query = rewrite_query(user_input)
-  print(f"Original Query: {user_input}")
-  print(f"Rewritten Query: {rewritten_query}")
+    response=client.post(
+        f"http://localhost:11434/v1/completions",
+        json={
+            "model": ollama_model,
+            "prompt": prompt,
+            "max_tokens": 200,
+        }
+    )
+    if response.status_code == 200:
+        rewritten_query=response.json()["choices"][0]["text"].strip()
+        return json.dumps({"Rewritten Query": rewritten_query})
+    else:
+        print(f"HTTP request failed with status code {response.status_code}.")
+        return None
 
-  # Simulate answering the question based on rewritten query and document (replace with your logic)
-  print("Answer: (Provide a relevant answer based on the document and rewritten query)")
+# Function to handle the chat logic with Ollama
+def ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
+    conversation_history.append({"role": "user", "content": user_input})
 
-  conversation_history.append({"role": "user", "content": user_input})
-  conversation_history.append({"role": "assistant", "content": "Answer: (Your answer here)"})
+    if len(conversation_history) > 1:
+        query_json={
+            "Query": user_input,
+            "Rewritten Query": ""
+        }
+        rewritten_query_json=rewrite_query(json.dumps(query_json), conversation_history, ollama_model, client)
+        if rewritten_query_json:
+            rewritten_query_data=json.loads(rewritten_query_json)
+            rewritten_query=rewritten_query_data["Rewritten Query"]
+            print(f"Original Query: {user_input}")
+            print(f"Rewritten Query: {rewritten_query}")
+        else:
+            print("Failed to rewrite the query.")
+            return None
+    else:
+        rewritten_query=user_input
+
+    relevant_context=get_relevant_context(rewritten_query, vault_embeddings, vault_content)
+    if relevant_context:
+        context_str="\n".join(relevant_context)
+        print("Context Pulled from Documents: \n\n" + context_str)
+    else:
+        print("No relevant context found.")
+
+    user_input_with_context=user_input
+    if relevant_context:
+        user_input_with_context=user_input + "\n\nRelevant Context:\n" + context_str
+
+    conversation_history[-1]["content"]=user_input_with_context
+
+    messages=[
+        {"role": "system", "content": system_message},
+        *conversation_history
+    ]
+
+    response=client.post(
+        f"http://localhost:11434/v1/chat/completions",
+        json={
+            "model": ollama_model,
+            "messages": messages,
+            "max_tokens": 2000,
+        }
+    )
+    if response.status_code == 200:
+        content=response.json()
+        assistant_response=content["choices"][0]["message"]["content"]
+        conversation_history.append({"role": "assistant", "content": assistant_response})
+        return assistant_response
+    else:
+        print(f"HTTP request failed with status code {response.status_code}.")
+        return None
+
+# Main function
+def main():
+    # Parse command-line arguments
+    parser=argparse.ArgumentParser(description="Ollama Chat")
+    parser.add_argument("--model", default="dolphin-llama3:latest", help="Ollama model to use (default: llama3)")
+    args=parser.parse_args()
+
+    # Initialize the Ollama API client
+    client=httpx.Client(base_url='http://localhost:11434/v1')
+
+    # Load the vault content
+    vault_content=[]
+    vault_file_path="vault.txt"
+    if os.path.exists(vault_file_path):
+        vault_modified_time=os.path.getmtime(vault_file_path)
+        with open(vault_file_path, "r", encoding='utf-8') as vault_file:
+            vault_content=vault_file.readlines()
+        # Check if embeddings file exists and is up to date, otherwise regenerate it
+        embeddings_file_path="vault_embeddings.pt"
+        regenerate_embeddings=True
+        if os.path.exists(embeddings_file_path):
+            embeddings_modified_time=os.path.getmtime(embeddings_file_path)
+            if embeddings_modified_time > vault_modified_time:
+                regenerate_embeddings=False
+        if regenerate_embeddings:
+            print("Generating embeddings for the vault content...")
+            vault_embeddings=[]
+            for content in vault_content:
+                response=ollama.embeddings(model='mxbai-embed-large', prompt=content)
+                vault_embeddings.append(response["embedding"])
+            # Save embeddings to file
+            torch.save(torch.tensor(vault_embeddings), embeddings_file_path)
+    else:
+        print("Vault file not found.")
+
+    # Load or regenerate embeddings
+    if os.path.exists(embeddings_file_path):
+        print("Loading embeddings from file...")
+        vault_embeddings_tensor=torch.load(embeddings_file_path)
+    else:
+        print("Embeddings file not found or outdated. Regenerating embeddings...")
+        # Regenerate embeddings
+        vault_embeddings_tensor=torch.tensor(vault_embeddings)
+
+    # Conversation loop
+    print("Starting conversation loop...")
+    conversation_history=[]
+    system_message="You are a helpful assistant that is an expert at extracting the most useful information from a given text. Also bring in extra relevant information to the user query from outside the given context."
+
+    while True:
+        user_input=input("Ask a query about your documents (or type 'quit' to exit): ")
+        if user_input.lower() == 'quit':
+            break
+
+        response=ollama_chat(user_input, system_message, vault_embeddings_tensor, vault_content, args.model, conversation_history, client)
+        if response:
+            print("Response: \n\n" + response)
+        else:
+            print("Failed to get a response from Ollama.")
+
+if __name__ == "__main__":
+    main()
