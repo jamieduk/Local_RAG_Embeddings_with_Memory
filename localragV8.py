@@ -12,11 +12,20 @@ from spellchecker import SpellChecker
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import argparse
 import time
-
+import subprocess
 
 # Global variable to store the cache
 CACHE_FILE="cache.json"
 query_cache={}
+
+
+def speak_response(file_path):
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        with open(file_path, 'r') as file:
+            text=file.read()
+            subprocess.call(['espeak', text])
+
+
 
 def load_cache():
     global query_cache
@@ -335,7 +344,14 @@ def main():
             seconds=int(elapsed_time % 60)
             print(f"\nTotal elapsed time: {minutes} minutes and {seconds} seconds.")
             print("Assistant response:\n" + response)
-
+			response_file='assistant_response.txt'
+			
+			# Check if the response file exists and is not empty
+			if os.path.exists(response_file) and os.path.getsize(response_file) > 0:
+				print(f"Reading from {response_file}...")
+				speak_response(response_file)
+			else:
+				print(f"{response_file} does not exist or is empty.")
     client.close()  # Close the HTTP client at the end
 
 if __name__ == "__main__":
