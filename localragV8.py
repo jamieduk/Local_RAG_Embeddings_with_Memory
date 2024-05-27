@@ -13,17 +13,22 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import argparse
 import time
 import subprocess
+import platform
 
 # Global variable to store the cache
 CACHE_FILE="cache.json"
 query_cache={}
 
 
+
 def speak_response(file_path):
     if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
         with open(file_path, 'r') as file:
             text=file.read()
-            subprocess.call(['espeak', text])
+            if platform.system() == "Windows":
+                subprocess.call(['espeak', text], shell=True)
+            else:
+                subprocess.call(['espeak', text])
 
 
 
@@ -356,4 +361,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
