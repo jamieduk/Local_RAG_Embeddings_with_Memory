@@ -142,7 +142,7 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
             "prompt": prompt,
             "max_tokens": 200,
         },
-        timeout=60.0
+        timeout=300 #60.0
     )
 
     if response.status_code == 200:
@@ -270,4 +270,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
