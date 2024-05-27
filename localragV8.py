@@ -355,7 +355,6 @@ def main():
         with open(vault_file_path, "r", encoding="utf-8") as vault_file:
             vault_content=vault_file.readlines()
 
-
     embeddings_file_path="vault_embeddings.pt"
     regenerate_embeddings=True
     if os.path.exists(embeddings_file_path):
@@ -391,11 +390,9 @@ def main():
             seconds=int(elapsed_time % 60)
             print(f"\nTotal elapsed time: {minutes} minutes and {seconds} seconds.")
             print("Assistant response:\n" + response)
-
+            speak_response(response)  # Speak the final response
     client.close()  # Close the HTTP client at the end
+
 
 if __name__ == "__main__":
     main()
-
-
-
