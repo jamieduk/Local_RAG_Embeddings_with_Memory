@@ -47,7 +47,7 @@ def process_and_append_text(text):
     with open("vault.txt", "a", encoding="utf-8") as vault_file:
         for chunk in chunks:
             vault_file.write(chunk.strip() + "\n")
-    print(f"Content appended to vault.txt with each chunk on a separate line.")
+    print(f"Content saved to vault.txt with each chunk on a separate line.")
 
 def upload_txtfile():
     file_path=filedialog.askopenfilename(filetypes=[("Text Files", "*.txt")])
