@@ -10,4 +10,5 @@ tkinter
 pytesseract
 spellchecker
 pyspellchecker
-
+python-dotenv
+transformers
