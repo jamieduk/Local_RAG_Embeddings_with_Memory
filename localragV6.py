@@ -249,7 +249,7 @@ def ollama_chat_with_retry(user_input, system_message, vault_embeddings, vault_c
 
 def main():
     start_time=time.time()  # Start the timer
-
+    
     parser=argparse.ArgumentParser(description="Ollama Chat")
     parser.add_argument("--model", default="dolphin-llama3:latest", help="Ollama model to use (default: llama3)")
     args=parser.parse_args()
@@ -258,29 +258,25 @@ def main():
 
     vault_content=[]
     vault_file_path="vault.txt"
-    vault_modified_time=0
     if os.path.exists(vault_file_path):
         vault_modified_time=os.path.getmtime(vault_file_path)
         with open(vault_file_path, "r", encoding="utf-8") as vault_file:
             vault_content=vault_file.readlines()
 
+
     embeddings_file_path="vault_embeddings.pt"
-    regenerate_embeddings=False
+    regenerate_embeddings=True
     if os.path.exists(embeddings_file_path):
         embeddings_modified_time=os.path.getmtime(embeddings_file_path)
-        if embeddings_modified_time < vault_modified_time:
-            regenerate_embeddings=True
-    else:
-        regenerate_embeddings=True
-
+        if embeddings_modified_time > vault_modified_time:
+            regenerate_embeddings=False
     if regenerate_embeddings:
         print("Generating embeddings for the vault content...")
         vault_embeddings=[]
         for content in vault_content:
             response=ollama.embeddings(model='mxbai-embed-large', prompt=content)
             vault_embeddings.append(response["embedding"])
-        vault_embeddings_tensor=torch.tensor(vault_embeddings).cuda() if torch.cuda.is_available() else torch.tensor(
-            vault_embeddings)
+        vault_embeddings_tensor=torch.tensor(vault_embeddings).cuda() if torch.cuda.is_available() else torch.tensor(vault_embeddings)
         torch.save(vault_embeddings_tensor, embeddings_file_path)
     else:
         vault_embeddings_tensor=torch.load(embeddings_file_path)
@@ -295,17 +291,19 @@ def main():
         user_input=input("Ask a query about your documents (or type 'quit' to exit): ")
         if user_input.lower() == 'quit':
             break
-        response=ollama_chat(user_input, system_message, vault_embeddings_tensor, vault_content, args.model,
-                               conversation_history, client)
+        response=ollama_chat(user_input, system_message, vault_embeddings_tensor, vault_content, args.model, conversation_history, client)
         if response:
-            end_time=time.time()  # End the timer
-            elapsed_time=end_time - start_time  # Calculate the elapsed time
-            minutes=int(elapsed_time // 60)
-            seconds=int(elapsed_time % 60)
-            print(f"\nTotal elapsed time: {minutes} minutes and {seconds} seconds.")
+        	end_time=time.time()  # End the timer
+			elapsed_time=end_time - start_time  # Calculate the elapsed time
+			minutes=int(elapsed_time // 60)
+			seconds=int(elapsed_time % 60)
+			print(f"\nTotal elapsed time: {minutes} minutes and {seconds} seconds.")
             print("Assistant response:\n" + response)
 
+    
+
     client.close()  # Close the HTTP client at the end
+
 
 
 if __name__ == "__main__":
