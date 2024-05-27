@@ -73,11 +73,13 @@ def load_vault_contents():
             vault_content=vault_file.readlines()
     return vault_content
     
+
+# Function to extract text from images using OCR
 def extract_text_from_image(page):
     text=''
-    images=page.get_images()
-    for img_id, img_obj in images.items():
-        base_image=img_obj[0]
+    for image_obj in page.images:
+        xref=image_obj[0]
+        base_image=page.get_xobject(xref)
         image=Image.open(io.BytesIO(base_image.stream.get_data()))
         text += pytesseract.image_to_string(image)
     return text
@@ -95,12 +97,32 @@ def load_cache():
     global query_cache
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, "r") as file:
-            query_cache=json.load(file)
+            try:
+                query_cache=json.load(file)
+            except json.JSONDecodeError:
+                query_cache={}
+    else:
+        query_cache={}
 
 def save_cache():
     global query_cache
-    with open(CACHE_FILE, "w") as file:
-        json.dump(query_cache, file)
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as file:
+            try:
+                existing_cache=json.load(file)
+            except json.JSONDecodeError:
+                existing_cache={}
+        # Update existing cache with new unique entries
+        for key, value in query_cache.items():
+            if key not in existing_cache:
+                existing_cache[key]=value
+        with open(CACHE_FILE, "w") as file:
+            json.dump(existing_cache, file)
+    else:
+        with open(CACHE_FILE, "w") as file:
+            json.dump(query_cache, file)
+
+
 
 # Load cache at the beginning of the program
 load_cache()
@@ -114,15 +136,6 @@ class Ollama:
 
 ollama=Ollama()
 
-# Function to extract text from images using OCR
-def extract_text_from_image(page):
-    text=''
-    for image_obj in page.images:
-        xref=image_obj[0]
-        base_image=page.get_xobject(xref)
-        image=Image.open(io.BytesIO(base_image.stream.get_data()))
-        text += pytesseract.image_to_string(image)
-    return text
 
 # Function to convert PDF to text and replace vault.txt
 def convert_pdf_to_text():
@@ -396,3 +409,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -1,408 +1,87 @@
 import os
+import tkinter as tk
+from tkinter import filedialog
+import PyPDF2
 import re
 import json
-import torch
-import httpx
-import PyPDF2
-import io
-from PIL import Image
 import pytesseract
-from tkinter import filedialog
+from PIL import Image
+import io
+from pdf2image import convert_from_path
 from spellchecker import SpellChecker
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import argparse
-import time
-import subprocess
-import platform
-from dotenv import load_dotenv
-import pyttsx3
 
-# Initialize the text-to-speech engine
-engine=pyttsx3.init()
-
-# Global variable to store the cache
-CACHE_FILE="cache.json"
-query_cache={}
-
-load_dotenv()
-
-API_KEY=os.getenv("API_KEY")
-
-
-# Function to speak the final response
-def speak_response(response):
-    engine.say(response)
-    engine.runAndWait()
-    
-    
-def open_file(filepath):
-    # Check if the file exists
-    if not os.path.exists(filepath):
-        print(f"File not found: {filepath}. Creating...")
-        try:
-            # Create the file
-            with open(filepath, 'w', encoding='utf-8'):
-                pass  # Just to create an empty file
-            print(f"File created: {filepath}")
-        except Exception as e:
-            print(f"Failed to create file: {filepath}")
-            print(f"Error: {e}")
-            return ""  # Return an empty string if file creation fails
-    
-    try:
-        # Open the file for reading
-        with open(filepath, 'r', encoding='utf-8') as infile:
-            return infile.read()
-    except FileNotFoundError:
-        print(f"File not found: {filepath}")
-        return ""
-    except Exception as e:
-        print(f"Error opening file: {filepath}")
-        print(f"Error: {e}")
-        return ""
-
-
-
-
-
-def load_vault_contents():
-    vault_content=[]
-    vault_file_path="vault.txt"
-    if os.path.exists(vault_file_path):
-        with open(vault_file_path, "r", encoding="utf-8") as vault_file:
-            vault_content=vault_file.readlines()
-    return vault_content
-    
-
-# Function to extract text from images using OCR
-def extract_text_from_image(page):
+def extract_text_from_image(pdf_path):
     text=''
-    for image_obj in page.images:
-        xref=image_obj[0]
-        base_image=page.get_xobject(xref)
-        image=Image.open(io.BytesIO(base_image.stream.get_data()))
-        text += pytesseract.image_to_string(image)
+    images=convert_from_path(pdf_path)
+    for img in images:
+        text += pytesseract.image_to_string(img)
     return text
 
+def spell_check_and_correct(text):
+    spell=SpellChecker()
+    words=text.split()
+    corrected_words=[spell.correction(word) or word for word in words]
+    corrected_text=' '.join(corrected_words)
+    return corrected_text
 
-# Function to speak a response using espeak
-def speak_response(text):
-    if platform.system() == "Windows":
-        subprocess.call(['espeak', text], shell=True)
-    else:
-        subprocess.call(['espeak', text])
+def process_and_append_text(text):
+    # Spell check and correct the text
+    corrected_text=spell_check_and_correct(text)
 
+    # Normalize whitespace and clean up text
+    corrected_text=re.sub(r'\s+', ' ', corrected_text).strip()
 
-def load_cache():
-    global query_cache
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as file:
-            try:
-                query_cache=json.load(file)
-            except json.JSONDecodeError:
-                query_cache={}
-    else:
-        query_cache={}
+    # Split text into chunks by sentences, respecting a maximum chunk size
+    sentences=re.split(r'(?<=[.!?]) +', corrected_text)
+    chunks=[]
+    current_chunk=""
+    for sentence in sentences:
+        if len(current_chunk) + len(sentence) + 1 < 1000:
+            current_chunk += (sentence + " ").strip()
+        else:
+            chunks.append(current_chunk)
+            current_chunk=sentence + " "
+    if current_chunk:
+        chunks.append(current_chunk)
 
+    with open("vault.txt", "a", encoding="utf-8") as vault_file:
+        for chunk in chunks:
+            vault_file.write(chunk.strip() + "\n")
+    print(f"Content saved to vault.txt with each chunk on a separate line.")
 
-def save_cache():
-    global query_cache
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as file:
-            try:
-                existing_cache=json.load(file)
-            except json.JSONDecodeError:
-                existing_cache={}
-        existing_cache.update(query_cache)
-        with open(CACHE_FILE, "w") as file:
-            json.dump(existing_cache, file)
-    else:
-        with open(CACHE_FILE, "w") as file:
-            json.dump(query_cache, file)
+def upload_txtfile():
+    file_path=filedialog.askopenfilename(filetypes=[("Text Files", "*.txt")])
+    if file_path:
+        with open(file_path, 'r', encoding="utf-8") as txt_file:
+            text=txt_file.read()
+            process_and_append_text(text)
 
-
-# Load cache at the beginning of the program
-load_cache()
-
-# Placeholder for Ollama API client functions
-class Ollama:
-    @staticmethod
-    def embeddings(model, prompt):
-        # Replace with the actual API call to get embeddings
-        return {"embedding": [0.0] * 768}  # Example embedding
-
-ollama=Ollama()
-
-
-# Function to convert PDF to text and replace vault.txt
 def convert_pdf_to_text():
     file_path=filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
     if file_path:
-        with open(file_path, 'rb') as pdf_file:
-            pdf_reader=PyPDF2.PdfReader(pdf_file)
-            text=''
-            for page in pdf_reader.pages:
-                page_text=page.extract_text()
-                if not page_text:
-                    page_text=extract_text_from_image(page)
-                if page_text:
-                    text += page_text + " "
+        text=extract_text_from_image(file_path)
+        process_and_append_text(text)
 
-            text=re.sub(r'\s+', ' ', text).strip()
-            sentences=re.split(r'(?<=[.!?]) +', text)
-            chunks=[]
-            current_chunk=""
-            for sentence in sentences:
-                if len(current_chunk) + len(sentence) + 1 < 1000:
-                    current_chunk += (sentence + " ").strip()
-                else:
-                    chunks.append(current_chunk)
-                    current_chunk=sentence + " "
-            if current_chunk:
-                chunks.append(current_chunk)
+def upload_jsonfile():
+    file_path=filedialog.askopenfilename(filetypes=[("JSON Files", "*.json")])
+    if file_path:
+        with open(file_path, 'r', encoding="utf-8") as json_file:
+            data=json.load(json_file)
+            text=json.dumps(data, ensure_ascii=False)
+            process_and_append_text(text)
 
-            # Initialize the spell checker
-            spell=SpellChecker()
+# Create the main window
+root=tk.Tk()
+root.title("Upload .pdf, .txt, or .json")
 
-            # Clean and spell check each chunk
-            cleaned_chunks=[]
-            for chunk in chunks:
-                words=chunk.split()
-                corrected_words=[spell.correction(word) for word in words]
-                corrected_text=' '.join(corrected_words)
-                cleaned_text=re.sub(r'[^a-zA-Z0-9\s,.!?]', '', corrected_text)
-                cleaned_chunks.append(cleaned_text)
+pdf_button=tk.Button(root, text="Upload PDF", command=convert_pdf_to_text)
+pdf_button.pack(pady=10)
 
-            with open("vault.txt", "w", encoding="utf-8") as vault_file:
-                for chunk in cleaned_chunks:
-                    vault_file.write(chunk.strip() + "\n")
-            print(f"PDF content replaced in vault.txt with each chunk on a separate line.")
+txt_button=tk.Button(root, text="Upload Text File", command=upload_txtfile)
+txt_button.pack(pady=10)
 
+json_button=tk.Button(root, text="Upload JSON File", command=upload_jsonfile)
+json_button.pack(pady=10)
 
-def get_relevant_context(rewritten_input, vault_embeddings, vault_content, top_k=3):
-    print(f"vault_embeddings.shape: {vault_embeddings.shape}")
-    print(f"vault_content length: {len(vault_content)}")
+root.mainloop()
 
-    if vault_embeddings.nelement() == 0:
-        return []
-
-    input_embedding=ollama.embeddings(model='mxbai-embed-large', prompt=rewritten_input)["embedding"]
-    input_embedding_tensor=torch.tensor(input_embedding).unsqueeze(0)  # Add batch dimension
-
-    # Ensure input embedding tensor has the same dimensionality as vault embeddings
-    if input_embedding_tensor.shape[1] != vault_embeddings.shape[1]:
-        target_dim=vault_embeddings.shape[1]
-        input_embedding_tensor=input_embedding_tensor[:, :target_dim]  # Trim to match the dimensions
-        if input_embedding_tensor.shape[1] < target_dim:
-            padding=target_dim - input_embedding_tensor.shape[1]
-            input_embedding_tensor=torch.nn.functional.pad(input_embedding_tensor, (0, padding))  # Pad to match the dimensions
-
-    cos_scores=torch.nn.functional.cosine_similarity(input_embedding_tensor, vault_embeddings, dim=-1)
-    top_k=min(top_k, len(cos_scores))
-    top_indices=torch.topk(cos_scores, k=top_k)[1].tolist()
-
-    print(f"top_indices: {top_indices}")
-
-    # Ensure indices are within valid range
-    relevant_context=[vault_content[idx].strip() for idx in top_indices if idx < len(vault_content)]
-
-    return relevant_context
-
-def rewrite_query(user_input_json, conversation_history, ollama_model, client):
-    user_input=json.loads(user_input_json)["Query"]
-    context="\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])
-    prompt=f"""Rewrite the following query by incorporating relevant context from the conversation history.
-    The rewritten query should:
-    - Ensure all text from llm aka ollama or any other models output should auto correct miss-spelt words (auto correct input and output)
-    - Preserve the core intent and meaning of the original query
-    - Expand and clarify the query to make it more specific and informative for retrieving relevant context
-    - Avoid introducing new topics or queries that deviate from the original query
-    - DONT EVER ANSWER the Original query, but instead focus on rephrasing and expanding it into a new query
-
-    Return ONLY the rewritten query text, without any additional formatting or explanations.
-
-    Conversation History:
-    {context}
-
-    Original query: [{user_input}]
-
-    Rewritten query:
-    """
-
-    response=client.post(
-        f"http://localhost:11434/v1/completions",
-        json={
-            "model": ollama_model,
-            "prompt": prompt,
-            "max_tokens": 200,  # 200
-        },
-        timeout=600.0
-    )
-
-    if response.status_code == 200:
-        rewritten_query=response.json()["choices"][0]["text"].strip()
-        with open("rewritten_queries.txt", "w", encoding="utf-8") as rewritten_file:
-            rewritten_file.write(rewritten_query + "\n")
-        print("Rewritten query saved to rewritten_queries.txt")
-        return json.dumps({"Rewritten Query": rewritten_query})
-    else:
-        print(f"HTTP request failed with status code {response.status_code}.")
-        print(f"Response content: {response.content.decode('utf-8')}")
-        return None
-
-def ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
-    global query_cache
-
-    conversation_history.append({"role": "user", "content": user_input})
-
-    if len(conversation_history) > 1:
-        query_json={
-            "Query": user_input,
-            "Rewritten Query": ""
-        }
-        rewritten_query_json=rewrite_query(json.dumps(query_json), conversation_history, ollama_model, client)
-        if rewritten_query_json:
-            rewritten_query_data=json.loads(rewritten_query_json)
-            rewritten_query=rewritten_query_data.get("Rewritten Query", "")  # Use get() to handle missing key
-            print(f"Original Query: {user_input}")
-            print(f"Rewritten Query: {rewritten_query}")
-        else:
-            print("Failed to rewrite the query.")
-            rewritten_query=user_input  # Use original query if rewriting fails
-    else:
-        rewritten_query=user_input
-
-    # Check if the user input is in the cache
-    if user_input in query_cache:
-        print("Using cached response.")
-        assistant_response=query_cache[user_input]
-        conversation_history.append({"role": "assistant", "content": assistant_response})
-        return assistant_response
-
-    # If not found in cache, proceed with the normal flow
-    relevant_context=get_relevant_context(rewritten_query, vault_embeddings, vault_content)
-    if relevant_context:
-        context_str="\n".join(relevant_context)
-        print("Context Pulled from Documents: \n\n" + context_str)
-    else:
-        print("No relevant context found.")
-
-    user_input_with_context=user_input
-    if relevant_context:
-        user_input_with_context=user_input + "\n\nRelevant Context:\n" + context_str
-
-    # Write user input with context to a file
-    with open("user_input_with_context.txt", "w", encoding="utf-8") as input_file:
-        input_file.write(user_input_with_context + "\n")
-
-    conversation_history[-1]["content"]=user_input_with_context
-
-    messages=[
-        {"role": "system", "content": system_message},
-        *conversation_history
-    ]
-
-    response=client.post(
-        f"http://localhost:11434/v1/chat/completions",
-        json={
-            "model": ollama_model,
-            "messages": messages,
-            "max_tokens": 2000,
-        },
-        timeout=660.0
-    )
-
-    if response.status_code == 200:
-        content=response.json()
-        assistant_response=content["choices"][0]["message"]["content"]
-        conversation_history.append({"role": "assistant", "content": assistant_response})
-
-        # Write assistant response to a file
-        with open("assistant_response.txt", "w", encoding="utf-8") as response_file:
-            response_file.write(assistant_response + "\n")
-
-        # Update the cache with the response
-        query_cache[user_input]=assistant_response
-
-        return assistant_response
-    else:
-        print(f"HTTP request failed with status code {response.status_code}.")
-        return None
-
-
-
-def ollama_chat_with_retry(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
-    retries=0
-    MAX_RETRIES=5
-    while retries < MAX_RETRIES:
-        try:
-            response=ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client)
-            return response
-        except httpx.ReadTimeout:
-            retries += 1
-            print(f"ReadTimeout occurred. Retrying... ({retries}/{MAX_RETRIES})")
-            time.sleep(1)  # Wait for 1 second before retrying
-    print("Max retries reached. Exiting...")
-    return None
-
-
-
-
-def main():
-    start_time=time.time()  # Start the timer
-    
-    parser=argparse.ArgumentParser(description="Ollama Chat")
-    parser.add_argument("--model", default="dolphin-llama3:latest", help="Ollama model to use (default: llama3)")
-    args=parser.parse_args()
-
-    client=httpx.Client(base_url='http://localhost:11434/v1', timeout=600.0)  # Increase timeout to 10 minutes
-
-    vault_content=[]
-    vault_file_path="vault.txt"
-    vault_modified_time=0  # Initialize vault_modified_time here
-    if os.path.exists(vault_file_path):
-        vault_modified_time=os.path.getmtime(vault_file_path)
-        with open(vault_file_path, "r", encoding="utf-8") as vault_file:
-            vault_content=vault_file.readlines()
-
-    embeddings_file_path="vault_embeddings.pt"
-    regenerate_embeddings=True
-    if os.path.exists(embeddings_file_path):
-        embeddings_modified_time=os.path.getmtime(embeddings_file_path)
-        if embeddings_modified_time > vault_modified_time:
-            regenerate_embeddings=False
-    if regenerate_embeddings:
-        print("Generating embeddings for the vault content...")
-        vault_embeddings=[]
-        for content in vault_content:
-            response=ollama.embeddings(model='mxbai-embed-large', prompt=content)
-            vault_embeddings.append(response["embedding"])
-        vault_embeddings_tensor=torch.tensor(vault_embeddings).cuda() if torch.cuda.is_available() else torch.tensor(vault_embeddings)
-        torch.save(vault_embeddings_tensor, embeddings_file_path)
-    else:
-        vault_embeddings_tensor=torch.load(embeddings_file_path)
-        if torch.cuda.is_available():
-            vault_embeddings_tensor=vault_embeddings_tensor.cuda()
-
-    system_message="You are an AI assistant here to help with queries."
-    conversation_history=[]
-
-    print("Starting conversation loop...")
-    while True:
-        user_input=input("Ask a query about your documents (or type 'quit' to exit): ")
-        if user_input.lower() == 'quit':
-            break
-        response=ollama_chat_with_retry(user_input, system_message, vault_embeddings_tensor, vault_content, args.model, conversation_history, client)
-        if response:
-            end_time=time.time()  # End the timer
-            elapsed_time=end_time - start_time  # Calculate the elapsed time
-            minutes=int(elapsed_time // 60)
-            seconds=int(elapsed_time % 60)
-            print(f"\nTotal elapsed time: {minutes} minutes and {seconds} seconds.")
-            print("Assistant response:\n" + response)
-            speak_response(response)  # Speak the final response
-    client.close()  # Close the HTTP client at the end
-
-
-if __name__ == "__main__":
-    main()
