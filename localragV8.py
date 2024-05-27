@@ -14,22 +14,81 @@ import argparse
 import time
 import subprocess
 import platform
+from dotenv import load_dotenv
+import pyttsx3
+
+# Initialize the text-to-speech engine
+engine=pyttsx3.init()
 
 # Global variable to store the cache
 CACHE_FILE="cache.json"
 query_cache={}
 
+load_dotenv()
+
+API_KEY=os.getenv("API_KEY")
 
 
-def speak_response(file_path):
-    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-        with open(file_path, 'r') as file:
-            text=file.read()
-            if platform.system() == "Windows":
-                subprocess.call(['espeak', text], shell=True)
-            else:
-                subprocess.call(['espeak', text])
+# Function to speak the final response
+def speak_response(response):
+    engine.say(response)
+    engine.runAndWait()
+    
+    
+def open_file(filepath):
+    # Check if the file exists
+    if not os.path.exists(filepath):
+        print(f"File not found: {filepath}. Creating...")
+        try:
+            # Create the file
+            with open(filepath, 'w', encoding='utf-8'):
+                pass  # Just to create an empty file
+            print(f"File created: {filepath}")
+        except Exception as e:
+            print(f"Failed to create file: {filepath}")
+            print(f"Error: {e}")
+            return ""  # Return an empty string if file creation fails
+    
+    try:
+        # Open the file for reading
+        with open(filepath, 'r', encoding='utf-8') as infile:
+            return infile.read()
+    except FileNotFoundError:
+        print(f"File not found: {filepath}")
+        return ""
+    except Exception as e:
+        print(f"Error opening file: {filepath}")
+        print(f"Error: {e}")
+        return ""
 
+
+
+
+
+def load_vault_contents():
+    vault_content=[]
+    vault_file_path="vault.txt"
+    if os.path.exists(vault_file_path):
+        with open(vault_file_path, "r", encoding="utf-8") as vault_file:
+            vault_content=vault_file.readlines()
+    return vault_content
+    
+def extract_text_from_image(page):
+    text=''
+    images=page.get_images()
+    for img_id, img_obj in images.items():
+        base_image=img_obj[0]
+        image=Image.open(io.BytesIO(base_image.stream.get_data()))
+        text += pytesseract.image_to_string(image)
+    return text
+
+
+# Function to speak a response using espeak
+def speak_response(text):
+    if platform.system() == "Windows":
+        subprocess.call(['espeak', text], shell=True)
+    else:
+        subprocess.call(['espeak', text])
 
 
 def load_cache():
@@ -45,7 +104,6 @@ def save_cache():
 
 # Load cache at the beginning of the program
 load_cache()
-
 
 # Placeholder for Ollama API client functions
 class Ollama:
@@ -110,18 +168,11 @@ def convert_pdf_to_text():
                     vault_file.write(chunk.strip() + "\n")
             print(f"PDF content replaced in vault.txt with each chunk on a separate line.")
 
-# Function to open a file and return its contents as a string
-def open_file(filepath):
-    with open(filepath, 'r', encoding='utf-8') as infile:
-        return infile.read()
-
-
-
 
 def get_relevant_context(rewritten_input, vault_embeddings, vault_content, top_k=3):
     print(f"vault_embeddings.shape: {vault_embeddings.shape}")
     print(f"vault_content length: {len(vault_content)}")
-    
+
     if vault_embeddings.nelement() == 0:
         return []
 
@@ -141,15 +192,11 @@ def get_relevant_context(rewritten_input, vault_embeddings, vault_content, top_k
     top_indices=torch.topk(cos_scores, k=top_k)[1].tolist()
 
     print(f"top_indices: {top_indices}")
-    
+
     # Ensure indices are within valid range
     relevant_context=[vault_content[idx].strip() for idx in top_indices if idx < len(vault_content)]
-    
+
     return relevant_context
-
-
-
-
 
 def rewrite_query(user_input_json, conversation_history, ollama_model, client):
     user_input=json.loads(user_input_json)["Query"]
@@ -177,7 +224,7 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
         json={
             "model": ollama_model,
             "prompt": prompt,
-            "max_tokens": 200, # 200
+            "max_tokens": 200,  # 200
         },
         timeout=600.0
     )
@@ -192,8 +239,6 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
         print(f"HTTP request failed with status code {response.status_code}.")
         print(f"Response content: {response.content.decode('utf-8')}")
         return None
-
-
 
 def ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
     global query_cache
@@ -276,11 +321,9 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
 
 
 
-
-MAX_RETRIES=5
-
 def ollama_chat_with_retry(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
     retries=0
+    MAX_RETRIES=5
     while retries < MAX_RETRIES:
         try:
             response=ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client)
@@ -291,7 +334,6 @@ def ollama_chat_with_retry(user_input, system_message, vault_embeddings, vault_c
             time.sleep(1)  # Wait for 1 second before retrying
     print("Max retries reached. Exiting...")
     return None
-
 
 
 
@@ -341,7 +383,7 @@ def main():
         user_input=input("Ask a query about your documents (or type 'quit' to exit): ")
         if user_input.lower() == 'quit':
             break
-        response=ollama_chat(user_input, system_message, vault_embeddings_tensor, vault_content, args.model, conversation_history, client)
+        response=ollama_chat_with_retry(user_input, system_message, vault_embeddings_tensor, vault_content, args.model, conversation_history, client)
         if response:
             end_time=time.time()  # End the timer
             elapsed_time=end_time - start_time  # Calculate the elapsed time
@@ -349,15 +391,11 @@ def main():
             seconds=int(elapsed_time % 60)
             print(f"\nTotal elapsed time: {minutes} minutes and {seconds} seconds.")
             print("Assistant response:\n" + response)
-			response_file='assistant_response.txt'
-			
-			# Check if the response file exists and is not empty
-			if os.path.exists(response_file) and os.path.getsize(response_file) > 0:
-				print(f"Reading from {response_file}...")
-				speak_response(response_file)
-			else:
-				print(f"{response_file} does not exist or is empty.")
+
     client.close()  # Close the HTTP client at the end
 
 if __name__ == "__main__":
     main()
+
+
+
