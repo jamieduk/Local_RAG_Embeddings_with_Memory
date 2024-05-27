@@ -13,6 +13,26 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import argparse
 import time
 
+
+# Global variable to store the cache
+CACHE_FILE="cache.json"
+query_cache={}
+
+def load_cache():
+    global query_cache
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as file:
+            query_cache=json.load(file)
+
+def save_cache():
+    global query_cache
+    with open(CACHE_FILE, "w") as file:
+        json.dump(query_cache, file)
+
+# Load cache at the beginning of the program
+load_cache()
+
+
 # Placeholder for Ollama API client functions
 class Ollama:
     @staticmethod
@@ -150,7 +170,11 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
         print(f"Response content: {response.content.decode('utf-8')}")
         return None
 
+
+
 def ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
+    global query_cache
+
     conversation_history.append({"role": "user", "content": user_input})
 
     if len(conversation_history) > 1:
@@ -161,15 +185,23 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
         rewritten_query_json=rewrite_query(json.dumps(query_json), conversation_history, ollama_model, client)
         if rewritten_query_json:
             rewritten_query_data=json.loads(rewritten_query_json)
-            rewritten_query=rewritten_query_data["Rewritten Query"]
+            rewritten_query=rewritten_query_data.get("Rewritten Query", "")  # Use get() to handle missing key
             print(f"Original Query: {user_input}")
             print(f"Rewritten Query: {rewritten_query}")
         else:
             print("Failed to rewrite the query.")
-
+            rewritten_query=user_input  # Use original query if rewriting fails
     else:
         rewritten_query=user_input
 
+    # Check if the user input is in the cache
+    if user_input in query_cache:
+        print("Using cached response.")
+        assistant_response=query_cache[user_input]
+        conversation_history.append({"role": "assistant", "content": assistant_response})
+        return assistant_response
+
+    # If not found in cache, proceed with the normal flow
     relevant_context=get_relevant_context(rewritten_query, vault_embeddings, vault_content)
     if relevant_context:
         context_str="\n".join(relevant_context)
@@ -211,10 +243,14 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
         with open("assistant_response.txt", "w", encoding="utf-8") as response_file:
             response_file.write(assistant_response + "\n")
 
+        # Update the cache with the response
+        query_cache[user_input]=assistant_response
+
         return assistant_response
     else:
         print(f"HTTP request failed with status code {response.status_code}.")
         return None
+
 
 
 
