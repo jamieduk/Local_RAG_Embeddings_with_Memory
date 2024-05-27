@@ -15,5 +15,5 @@ fi
 
 
 
-echo "Starting RAG V7"
-python localragV7.py
+echo "Starting RAG AI"
+python localragV8.py

@@ -1,4 +1,10 @@
 @echo off
+python -m venv myenv
+venv\Scripts\activate
 
-cls
-python localragV7.py
+rem Run the Python script
+python localragV8.py
+
+rem Deactivate the virtual environment after script execution (optional)
+rem  deactivate
+
