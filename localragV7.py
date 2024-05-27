@@ -101,32 +101,41 @@ def open_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as infile:
         return infile.read()
 
+
+
+
 def get_relevant_context(rewritten_input, vault_embeddings, vault_content, top_k=3):
+    print(f"vault_embeddings.shape: {vault_embeddings.shape}")
+    print(f"vault_content length: {len(vault_content)}")
+    
     if vault_embeddings.nelement() == 0:
         return []
 
     input_embedding=ollama.embeddings(model='mxbai-embed-large', prompt=rewritten_input)["embedding"]
-    input_embedding_tensor=torch.tensor(input_embedding).cuda() if torch.cuda.is_available() else torch.tensor(input_embedding)
+    input_embedding_tensor=torch.tensor(input_embedding).unsqueeze(0)  # Add batch dimension
 
-    # Resize input embedding tensor if dimensionality doesn't match
-    if input_embedding_tensor.size(-1) != vault_embeddings.size(-1):
-        try:
-            if len(input_embedding_tensor.shape) == 2:
-                input_embedding_tensor=input_embedding_tensor.unsqueeze(0)  # Add batch dimension
-            input_embedding_tensor=torch.nn.functional.interpolate(input_embedding_tensor, size=vault_embeddings.size(-1), mode='nearest')
-        except Exception as e:
-            print(f"Error resizing input embedding tensor: {e}")
-            return []
-
-    # Ensure vault embeddings have the same dimensionality as input embedding tensor
-    if input_embedding_tensor.size(-1) != vault_embeddings.size(-1):
-        raise ValueError("Dimensionality of input embedding and vault embeddings must match.")
+    # Ensure input embedding tensor has the same dimensionality as vault embeddings
+    if input_embedding_tensor.shape[1] != vault_embeddings.shape[1]:
+        target_dim=vault_embeddings.shape[1]
+        input_embedding_tensor=input_embedding_tensor[:, :target_dim]  # Trim to match the dimensions
+        if input_embedding_tensor.shape[1] < target_dim:
+            padding=target_dim - input_embedding_tensor.shape[1]
+            input_embedding_tensor=torch.nn.functional.pad(input_embedding_tensor, (0, padding))  # Pad to match the dimensions
 
     cos_scores=torch.nn.functional.cosine_similarity(input_embedding_tensor, vault_embeddings, dim=-1)
     top_k=min(top_k, len(cos_scores))
     top_indices=torch.topk(cos_scores, k=top_k)[1].tolist()
-    relevant_context=[vault_content[idx].strip() for idx in top_indices]
+
+    print(f"top_indices: {top_indices}")
+    
+    # Ensure indices are within valid range
+    relevant_context=[vault_content[idx].strip() for idx in top_indices if idx < len(vault_content)]
+    
     return relevant_context
+
+
+
+
 
 def rewrite_query(user_input_json, conversation_history, ollama_model, client):
     user_input=json.loads(user_input_json)["Query"]
@@ -331,4 +340,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
