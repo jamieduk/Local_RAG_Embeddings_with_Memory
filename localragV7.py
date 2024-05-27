@@ -134,7 +134,7 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
         json={
             "model": ollama_model,
             "prompt": prompt,
-            "max_tokens": 200,
+            "max_tokens": 200, # 200
         },
         timeout=600.0
     )
@@ -216,7 +216,9 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
         print(f"HTTP request failed with status code {response.status_code}.")
         return None
 
-MAX_RETRIES=3
+
+
+MAX_RETRIES=5
 
 def ollama_chat_with_retry(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
     retries=0
@@ -230,6 +232,7 @@ def ollama_chat_with_retry(user_input, system_message, vault_embeddings, vault_c
             time.sleep(1)  # Wait for 1 second before retrying
     print("Max retries reached. Exiting...")
     return None
+
 
 
 
