@@ -11,6 +11,7 @@ from tkinter import filedialog
 from spellchecker import SpellChecker
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import argparse
+import time
 
 # Placeholder for Ollama API client functions
 class Ollama:
@@ -80,6 +81,9 @@ def open_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as infile:
         return infile.read()
 
+
+
+
 def get_relevant_context(rewritten_input, vault_embeddings, vault_content, top_k=3):
     if vault_embeddings.nelement() == 0:
         return []
@@ -119,7 +123,7 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
     context="\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_history[-2:]])
     prompt=f"""Rewrite the following query by incorporating relevant context from the conversation history.
     The rewritten query should:
-
+    - Ensure all text from llm aka ollama or any other models output should auto correct miss-spelt words (auto correct input and output)
     - Preserve the core intent and meaning of the original query
     - Expand and clarify the query to make it more specific and informative for retrieving relevant context
     - Avoid introducing new topics or queries that deviate from the original query
@@ -142,7 +146,7 @@ def rewrite_query(user_input_json, conversation_history, ollama_model, client):
             "prompt": prompt,
             "max_tokens": 200,
         },
-        timeout=300 #60.0
+        timeout=600.0 #60.0
     )
 
     if response.status_code == 200:
@@ -206,7 +210,7 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
             "messages": messages,
             "max_tokens": 2000,
         },
-        timeout=60.0
+        timeout=660.0
     )
 
     if response.status_code == 200:
@@ -223,12 +227,32 @@ def ollama_chat(user_input, system_message, vault_embeddings, vault_content, oll
         print(f"HTTP request failed with status code {response.status_code}.")
         return None
 
+
+
+MAX_RETRIES=3
+
+def ollama_chat_with_retry(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client):
+    retries=0
+    while retries < MAX_RETRIES:
+        try:
+            response=ollama_chat(user_input, system_message, vault_embeddings, vault_content, ollama_model, conversation_history, client)
+            return response
+        except httpx.ReadTimeout:
+            retries += 1
+            print(f"ReadTimeout occurred. Retrying... ({retries}/{MAX_RETRIES})")
+            time.sleep(1)  # Wait for 1 second before retrying
+    print("Max retries reached. Exiting...")
+    return None
+
+
 def main():
+    start_time=time.time()  # Start the timer
+    
     parser=argparse.ArgumentParser(description="Ollama Chat")
     parser.add_argument("--model", default="dolphin-llama3:latest", help="Ollama model to use (default: llama3)")
     args=parser.parse_args()
 
-    client=httpx.Client(base_url='http://localhost:11434/v1', timeout=60.0)
+    client=httpx.Client(base_url='http://localhost:11434/v1', timeout=300.0)  # Increase timeout to 5 minutes
 
     vault_content=[]
     vault_file_path="vault.txt"
@@ -267,6 +291,16 @@ def main():
         response=ollama_chat(user_input, system_message, vault_embeddings_tensor, vault_content, args.model, conversation_history, client)
         if response:
             print("Assistant response:\n" + response)
+
+    end_time=time.time()  # End the timer
+    elapsed_time=end_time - start_time  # Calculate the elapsed time
+    minutes=int(elapsed_time // 60)
+    seconds=int(elapsed_time % 60)
+    print(f"\nTotal elapsed time: {minutes} minutes and {seconds} seconds.")
+
+    client.close()  # Close the HTTP client at the end
+
+
 
 if __name__ == "__main__":
     main()
