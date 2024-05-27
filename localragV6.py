@@ -245,6 +245,8 @@ def ollama_chat_with_retry(user_input, system_message, vault_embeddings, vault_c
     return None
 
 
+
+
 def main():
     start_time=time.time()  # Start the timer
     
@@ -252,7 +254,7 @@ def main():
     parser.add_argument("--model", default="dolphin-llama3:latest", help="Ollama model to use (default: llama3)")
     args=parser.parse_args()
 
-    client=httpx.Client(base_url='http://localhost:11434/v1', timeout=300.0)  # Increase timeout to 5 minutes
+    client=httpx.Client(base_url='http://localhost:11434/v1', timeout=600.0)  # Increase timeout to 10 minutes
 
     vault_content=[]
     vault_file_path="vault.txt"
@@ -260,6 +262,7 @@ def main():
         vault_modified_time=os.path.getmtime(vault_file_path)
         with open(vault_file_path, "r", encoding="utf-8") as vault_file:
             vault_content=vault_file.readlines()
+
 
     embeddings_file_path="vault_embeddings.pt"
     regenerate_embeddings=True
