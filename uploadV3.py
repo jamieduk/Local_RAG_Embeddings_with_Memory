@@ -20,7 +20,7 @@ def extract_text_from_image(pdf_path):
 def spell_check_and_correct(text):
     spell=SpellChecker()
     words=text.split()
-    corrected_words=[spell.correction(word) for word in words]
+    corrected_words=[spell.correction(word) or word for word in words]
     corrected_text=' '.join(corrected_words)
     return corrected_text
 
@@ -84,4 +84,3 @@ json_button=tk.Button(root, text="Upload JSON File", command=upload_jsonfile)
 json_button.pack(pady=10)
 
 root.mainloop()
-
