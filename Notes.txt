@@ -2,6 +2,8 @@ uploadV2.py has amazing capibilities
 localrag v3 for linux
 localragVer 5 for  windows with cuda support (4 no cuda)
 
+https://github.com/jamieduk/Local_RAG_Embeddings_with_Memory
+
 The script first checks if the vault.txt file exists. If it does, it reads its content and then generates or loads embeddings based on the content. If the vault.txt file doesn't exist, it prints a message indicating that the vault file is not found.
 
 If embeddings need to be regenerated (either because the vault.txt file was modified or the embeddings file is outdated), it generates embeddings for the vault content and saves them to a file named vault_embeddings.pt.
@@ -53,5 +55,4 @@ https://www.youtube.com/watch?v=Oe-7dGDyzPM
 Other
 
 https://github.com/AllAboutAI-YT/hackernews-llm-search.git
-
 
